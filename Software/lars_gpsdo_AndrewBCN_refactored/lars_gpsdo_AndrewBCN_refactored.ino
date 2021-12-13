@@ -1,27 +1,48 @@
+/* This is the original firmware published in August 2017 by Lars Walenius for his Lars' DIY GPSDO project,
+ * refactored by AndrewBCN / André Derrick Balsa (andrebalsa@gmail.com) in 2021/2022
+ */
+ 
 /*
   
   ONLY for 328 based Arduinos!!
+  // AndrewBCN: that includes the Uno, the Pro Mini, the Nano and various other Arduino-like boards.
+  // Also I believe some boards based on the ATmega32U4 would work fine (e.g. SparkFun Pro Micro).
+  
   With modulo 50000
+  // AndrewBCN: I assume this "with modulo 50000" refers to the 50000 set as the max counter value
+  // that Timer 1 counts to (upcounting from zero up to 50000). 
+  // The Timer 1 counter register is clocked by the OCXO 10MHz divided by 2 (74HC390) = 5MHz.
+  // When the 1PPS capture occurs Timer 1 gives us an indication of how close the OCXO frequency is
+  // to exactly 10MHz, with 200ns resolution.
+  
   With getcommand from JimH (replaces dipswitches)
+  // AndrewBCN: this allows configuring the GPSDO from a PC after power on, and saving the configuration
+  // parameters in the EEPROM.
+  
   Added timer_us to ns TIC values to get much much larger capture range
   Changed PI-loop now uses float with remainder and not DI-term for P-term
   Changed average TIC+DAC storing to instant TIC+TNCT1 in hold mode
   Still EEPROM storage of 3hour averages and dac start value
-  Added EEPROM storage of time constant and gain and many more parameters(see getcommand "help" below)
+  Added EEPROM storage of time constant and gain and many more parameters (see getcommand "help" below)
   
-  Please check gain and timeConst and adapt to your used VCO. Holdmode is very useful to check range of VCO
+  Please check gain and timeConst and adapt to your used OCXO. Holdmode is very useful to check range of OCXO
   
   -Hardware:
-  This version uses input capture on D8 !!! so jumper D2-D8 if you have an old shield with 1PPS to D2
-  Uses 1 ns res/ 1 us TIC and internal PWM (2 x 8bits)
-  1PPS to capture interrupt (D8)and HC4046 pin 14
-  1MHz from HC390 (div2*5)to HC4046 pin 3
-  5MHz from HC390 (div2)to timer1 (D5)
-  1N5711+3.9k in series from HC4046 pin 15 to ADC0. 1nF NPO + 10M to ground on ADC0
-  16bit PWM DAC with two-pole lowpass filter from D3 (39k+4.7uF+39k+4.7uF) and D11 (10M)
-  Put a LED + resistor on D13 to show Lock status
+  This version uses input capture on D8 !
+  Uses 1 ns res / 1000ns range TIC and internal PWM (2 x 8 bits added to form 16-bit PWM DAC)
+  1PPS to capture interrupt (D8) and HC4046 pin 14
+  1MHz from HC390 (div2*5) to HC4046 pin 3
+  5MHz from HC390 (div2) to timer1 (D5)
+  
+  1ns resolution TIC is made up of:
+  1N5711+3.9k in series from HC4046 phase comparator pin 15 to ADC0. 1nF NPO + 10M to ground on ADC0
+  
+  16bit PWM DAC is made up of:
+  Two-pole lowpass filter from D3 (39k+4.7uF+39k+4.7uF) (high byte) and D11 (10M) (low byte)
+  Uses an LED + resistor on pin D13 to show PLL Lock status.
   Optional temperature sensors on ADC2 (used for temperature compensation) and ADC1 (just indication)
   ADC3 can be read and used for whatever you want
+  
   For UNO a recommendation is to connect one jumper from reset to a 10uf capacitor connected to ground.
   With this jumper shorted the Arduino UNO will not reset every time the serial monitor is started.
   For downloading a new program the jumper need to be taken away.
@@ -31,64 +52,100 @@
 
 #include <EEPROM.h>
 
-int warmUpTime = 300; // 300 gives five minutes hold during eg OCXO or Rb warmup. Set to eg 3 for VCTCXO
-long dacValueOut = 32768; // 16bit PWM-DAC setvalue=startvalue Max 65535 (if nothing stored in the EEPROM)
-long dacValue; // this is also same as "DACvalueOld" Note: is "0-65535" * timeconst
-long dacValue2; // had to add this for calculation in PI-loop
-long dacValueWithTempComp; // Note: is "0-65535" * timeconst
-const int PWMhighPin = 3; // high PWM-DAC pin (connected to 39k)
-const int PWMlowPin = 11; // low PWM-DAC pin (connected to 10M)
-int valuePWMhigh; // high PWM-DAC byte
-int valuePWMlow; // low PWM-DAC byte
+// ---------------------------------------------------------------------------------------------
+//    select one and only one of various types of temperature sensors
+// --------------------------------------------------------------------------------------------- 
+// #define TEMP_SENSOR_NONE        // no temperature sensor, compensation and temperature reporting disabled
+// #define TEMP_SENSOR_LM35        // LM35
+// #define TEMP_SENSOR_10KNTC68K   // 10k NTC beta 3950 + 68k  (15-60C)
+#define TEMP_SENSOR_10KNTC47K   // 10k NTC beta 3950 + 47k  (15-65C)
+// #define TEMP_SENSOR_10KNTC39K   // 10k NTC beta 3950 + 39k  (25-70C)
+// #define TEMP_SENSOR_22KNTC120K  // 22k NTC beta 3950 + 120k (15-65C)
 
-volatile int TIC_Value; // analog read 0  - time value. About 1ns per bit with 3.7kohm+1nF
-int TIC_ValueOld;//old not filtered TIC_value
-int TIC_Offset = 500; // ADC value for Reference time
-long TIC_ValueFiltered; // prefiltered TIC value
-long TIC_ValueFilteredOld;// old filtered value
+// ---------------------------------------------------------------------------------------------
+//    general constants and variables
+// --------------------------------------------------------------------------------------------- 
+int warmUpTime = 300;       // 300 gives five minutes hold during eg OCXO or Rb warmup. Set to eg 3 for VCTCXO
+long dacValueOut = 32768;   // 16bit PWM-DAC setvalue=startvalue Max 65535 (if nothing stored in the EEPROM)
+long dacValue;              // this is also same as "DACvalueOld" Note: is "0-65535" * timeconst
+long dacValue2;             // had to add this for calculation in PI-loop
+long dacValueWithTempComp;  // Note: is "0-65535" * timeconst
+const int PWMhighPin = 3;   // high PWM-DAC pin (connected to 39k)
+const int PWMlowPin = 11;   // low PWM-DAC pin (connected to 10M)
+int valuePWMhigh;           // high PWM-DAC byte
+int valuePWMlow;            // low PWM-DAC byte
+
+// ---------------------------------------------------------------------------------------------
+//    TIC constants and variables
+// --------------------------------------------------------------------------------------------- 
+volatile int TIC_Value;            // analog read 0  - time value. About 1ns per bit with 3.7kohm+1nF
+int TIC_ValueOld;                  // old not filtered TIC_value
+int TIC_Offset = 500;              // ADC value for Reference time
+long TIC_ValueFiltered;            // prefiltered TIC value
+long TIC_ValueFilteredOld;         // old filtered value
 long TIC_ValueFilteredForPPS_lock; // prefiltered value just for PPS lock
 
-volatile unsigned int timer1CounterValue; //counts 5MHz clock modulo 50000
+// ---------------------------------------------------------------------------------------------
+//    timer constants and variables
+// --------------------------------------------------------------------------------------------- 
+volatile unsigned int timer1CounterValue; // counts 5MHz clock modulo 50000
 long timer1CounterValueOld = 0 ;
-unsigned int TCNT1new = 0;//in main loop
+unsigned int TCNT1new = 0;                // in main loop
 unsigned int TCNT1old = 0;
-unsigned long overflowCount = 0; // counter for timer1 overflows
-long timer_us; // timer1 value in microseconds offset from 1pps
-long timer_us_old; // used for diff_ns
-long diff_ns; // difference between old and new TIC_Value
-long diff_ns_ForPPS_lock; // prefiltered value just for PPS lock
+unsigned long overflowCount = 0;          // counter for timer1 overflows
+long timer_us;                            // timer1 value in microseconds offset from 1pps
+long timer_us_old;                        // used for diff_ns
+long diff_ns;                             // difference between old and new TIC_Value
+long diff_ns_ForPPS_lock;                 // prefiltered value just for PPS lock
 
-int tempADC1; // analog read 1  - for example for internal NTC if oscillator external to Arduino
-long tempADC2; // analog read 2  - for oscillator temp eg LM35 or NTC - used for temperature compensation
-long tempADC2_Filtered; // analog read 2  - temp filtered for temp correction
-long tempCoeff = 0; // 650 = 1x10-11/°C if 1°C= +10bit temp and 65dac bits is 1x10-11 // set to -dacbits/tempbits*100?
-long tempRef = 280; // offset for temp correction calculation - 280 is about 30C for LM35 (set for value at normal room temperature)
-unsigned int temperature_Sensor_Type = 0; //
+// ---------------------------------------------------------------------------------------------
+//    temperature constants and variables
+// --------------------------------------------------------------------------------------------- 
+// Note that Lars did not describe in any details the benefits (if any) of temperature compensation
+// or how to set the tempCoeff and tempRef parameters below.
+// A tempCoeff of zero (default value) means there is no temperature compensation.
+// There are user commands to set the values for tempCoeff and TempRef, see code below.
+// The temperature compensation (if any) is applied directly to the dacValue output to the OCXO
+// (again, see code below).
+// Lars indicates that the temp sensor on ADC2 must be close or in contact with the OCXO,
+// whereas the temp sensor on ADC1, which is not used for temperature compensation,
+// is close to the MCU (and I assume far from the OCXO and/or the 5V regulator).
+int tempADC1;                             // analog read 1  - for example for internal NTC if oscillator external to Arduino
+long tempADC2;                            // analog read 2  - for oscillator temp eg LM35 or NTC - used for temperature compensation
+long tempADC2_Filtered;                   // analog read 2  - temp filtered for temp correction
+long tempCoeff = 0;                       // 650 = 1x10-11/°C if 1°C= +10bit temp and 65dac bits is 1x10-11 // set to -dacbits/tempbits*100?
+long tempRef = 280;                       // offset for temp compensation calculation
+                                          // 280 is about 30C for LM35 (set for value at normal room temperature)
+unsigned int temperature_Sensor_Type = 0; // In principle this means no temp sensors?
 
-long timeConst = 32; // Time constant in seconds
-long timeConstOld = 32; // old Time constant
-int filterDiv = 2; // filterConst = timeConst / filterDiv
-long filterConst = 16; // pre-filter time const in secs (TIC-filtering)
-long filterConstOld = 16; // old Filter time constant
+// ---------------------------------------------------------------------------------------------
+//    miscellaneous constants and variables
+// --------------------------------------------------------------------------------------------- 
+long timeConst = 32;        // Time constant in seconds
+long timeConstOld = 32;     // old Time constant
+int filterDiv = 2;          // filterConst = timeConst / filterDiv
+long filterConst = 16;      // pre-filter time const in secs (TIC-filtering)
+long filterConstOld = 16;   // old Filter time constant
 
-float I_term; //for PI-loop
+float I_term;               // for PI-loop
 float P_term;
 long I_term_long;
 float I_term_remain;
 
-long gain = 12; //VCO freq DAC bits per TIC bit (65536/VCOrange in ppb (eg. with 1nS/bit and 100ppb DACrange gives gain=655))
-float damping = 3.0; //Damping in loop
+long gain = 12;             // VCO freq DAC bits per TIC bit
+                            // (65536/VCOrange in ppb (eg. with 1nS/bit and 100ppb DACrange gives gain=655))
+float damping = 3.0;        // Damping in loop
 
-unsigned long time; //seconds since start
-unsigned long timeOld; //last seconds since start
-unsigned int missedPPS; // incremented every time pps is missed
+unsigned long time;         // uptime in seconds; seconds since poweron
+unsigned long timeOld;      // last seconds since start
+unsigned int missedPPS;     // incremented every time pps is missed
 unsigned long timeSinceMissedPPS;
-volatile boolean PPS_ReadFlag = false; // set true every time pps is received
-int lockPPSlimit = 100; //if TIC filtered for PPS within +- this for lockPSfactor * timeConst = PPSlocked
-int lockPPSfactor = 5; // see above
-unsigned long lockPPScounter; // counter for PPSlocked
-boolean PPSlocked; //digital pin and prints 0 or 1
-const int ppsLockedLED = 13; // LED pin for pps locked
+volatile boolean PPS_ReadFlag = false;  // set true every time pps is received
+int lockPPSlimit = 100;                 // if TIC filtered for PPS within +- this for lockPSfactor * timeConst = PPSlocked
+int lockPPSfactor = 5;                  // see above
+unsigned long lockPPScounter;           // counter for PPSlocked
+boolean PPSlocked;              // PPS "locked" status, indicated on LED and serial port messages
+const int ppsLockedLED = 13;    // Arduino pin for pps locked LED
 
 int i; // counter for 300secs before storing temp and dac readings average
 int j; // counter for stored 300sec readings
@@ -1335,5 +1392,3 @@ void loop()
      }
   }
 }
-
-
