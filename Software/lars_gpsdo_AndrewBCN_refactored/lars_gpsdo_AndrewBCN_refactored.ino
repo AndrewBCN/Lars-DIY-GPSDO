@@ -147,10 +147,10 @@ unsigned long lockPPScounter;           // counter for PPSlocked
 boolean PPSlocked;              // PPS "locked" status, indicated on LED and serial port messages
 const int ppsLockedLED = 13;    // Arduino pin for pps locked LED
 
-int i; // counter for 300secs before storing temp and dac readings average
-int j; // counter for stored 300sec readings
-int k; // counter for stored 3hour readings
-unsigned int StoreTIC_A[144]; //300sec storage
+int i; // counter for 300s before storing temp and dac readings average
+int j; // counter for stored 300s readings
+int k; // counter for stored 3 hour readings
+unsigned int StoreTIC_A[144]; // 300s storage
 unsigned int StoreTempA[144];
 unsigned int StoreDAC_A[144];
 long sumTIC;
@@ -160,8 +160,8 @@ long sumTemp2;
 unsigned long sumDAC; 
 unsigned long sumDAC2;
 
-unsigned int totalTime3h; // counter for power-up time updated every third hour
-unsigned int restarts; // counter for restarts/power-ups
+unsigned int totalTime3h;   // counter for uptime updated every third hour
+unsigned int restarts;      // counter for restarts/power-ups
 boolean restartFlag = true;
 
 unsigned int ID_Number;
@@ -172,9 +172,9 @@ boolean nsDisplayedDecimals;
 // for get command
 int incomingByte;   // for incoming serial data in getCommand
 enum Modes {hold, run};
-Modes opMode = run;     //operating mode
-Modes newMode = hold;   // used to reset timer_us when run is set and at to many missing PPS
-unsigned int holdValue; //DAC value for Hold mode
+Modes opMode = run;     // operating mode
+Modes newMode = hold;   // used to reset timer_us when run is set and at too many missing PPS
+unsigned int holdValue; // DAC value for Hold mode
 
 // for TIC linearization
 float TICmin = 12.0;
@@ -187,30 +187,31 @@ float TIC_ValueCorr;
 float TIC_ValueCorrOld;
 float TIC_ValueCorrOffset;
 
-
-////////////////////////////////////////////////////////////////////////////////////////////////
-// Timer1 capture interrupt routine - this runs at rising edge of 1PPS on D8
-
+// ---------------------------------------------------------------------------------------------
+//    Timer 1 capture interrupt routine - this runs at rising edge of 1PPS on D8
+// --------------------------------------------------------------------------------------------- 
 ISR (TIMER1_CAPT_vect)
 {
-  timer1CounterValue = ICR1;  // read the captured timer1 200ns counter value
+  timer1CounterValue = ICR1;  // read the captured Timer 1 counter value (1 bit @ 5MHz = 200ns)
   
-  TIC_Value = analogRead(A0);  // ns value
+  TIC_Value = analogRead(A0); // ns value
 
-  PPS_ReadFlag = true;
+  PPS_ReadFlag = true;        // flag reset in the main loop, once per second
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////  
+// ---------------------------------------------------------------------------------------------
+//    calculations routine - this is called from the main loop once per second
+// --------------------------------------------------------------------------------------------- 
 void calculation()
 {
 
-// set timer1 start value in the beginning  
+  // set timer1 start value in the beginning  
   if (time < 2 || (time > warmUpTime-2 && time < warmUpTime))
     {
       TCNT1 = 25570 ; // is guessed value to get around 25000 next time
     }
   
-// TIC linearization
+  // TIC linearization
   //x2 = (((TICmid-TICmin)/(TICmax-TICmin)*1000)- 500.0)/250.0 - 0.05; // just for info
   x1 = 1.0 - x3 - x2;
   TIC_Scaled = ((float)TIC_Offset - TICmin)/(TICmax - TICmin)*1000; // Scaling for TIC_Offset
@@ -219,7 +220,7 @@ void calculation()
   TIC_Scaled = ((float)TIC_Value - TICmin)/(TICmax - TICmin)*1000; // Scaling for TIC_Value
   TIC_ValueCorr = TIC_Scaled * x1 + TIC_Scaled * TIC_Scaled * x2 / 1000.0 + TIC_Scaled * TIC_Scaled * TIC_Scaled * x3 /1000000.0;
   
-// timer_us 
+  // timer_us 
   timer_us = timer_us + 50000 - (((timer1CounterValue - timer1CounterValueOld) * 200 + TIC_Value - TIC_ValueOld)+50000500)/1000;
 
   if (newMode == run)     // reset timer_us if change from hold mode to run mode
@@ -248,9 +249,8 @@ void calculation()
       timer_us_old = 0 ;
       TIC_ValueFilteredOld = TIC_Offset * filterConst;
     } 
-
     
-// Diff_ns
+  // Diff_ns
   if (TIC_ValueCorr > TIC_ValueCorrOld)
     {
     diff_ns = (timer_us - timer_us_old)*1000 + long (TIC_ValueCorr - TIC_ValueCorrOld + 0.5); // = Frequency in ppb if updated every second! Note: TIC linearized
@@ -259,11 +259,11 @@ void calculation()
       {
       diff_ns = (timer_us - timer_us_old)*1000 + long (TIC_ValueCorr - TIC_ValueCorrOld -0.5); 
       }
-// time - is supposed to be approximately seconds since start
+  // time - is supposed to be approximately seconds since start
   time = time + (overflowCount + 50)/100;
   overflowCount = 0;
   
-// missedPPS
+  // missed PPS
   if (time - timeOld > 1) 
     {
       missedPPS = missedPPS + 1;
@@ -274,12 +274,12 @@ void calculation()
        timeSinceMissedPPS = timeSinceMissedPPS + 1;
        }
 
-////// PPS locked
+  ////// PPS locked
 
- // Low Pass Filter of TIC_Value for PPS lock  // /16 is used as 500ns error and /16 is about 30ns that seems reasonable
+  // Low Pass Filter of TIC_Value for PPS lock  // /16 is used as 500ns error and /16 is about 30ns that seems reasonable
   TIC_ValueFilteredForPPS_lock = TIC_ValueFilteredForPPS_lock + (TIC_Value * 16 - TIC_ValueFilteredForPPS_lock) / 16;
                                                                              
- // Low Pass Filter of diff_ns for PPS lock                                                                             
+  // Low Pass Filter of diff_ns for PPS lock                                                                             
   diff_ns_ForPPS_lock = diff_ns_ForPPS_lock + (diff_ns * 16 - diff_ns_ForPPS_lock) / 16;
   
   lockPPScounter = lockPPScounter + 1;
@@ -288,7 +288,7 @@ void calculation()
     {
       lockPPScounter = 0;
     }
-  if (abs(diff_ns_ForPPS_lock/16) > 20)// if freq more than 20ppb wrong (had to add this to avoid certain combinations not covered by above)
+  if (abs(diff_ns_ForPPS_lock/16) > 20) // if freq more than 20ppb wrong (had to add this to avoid certain combinations not covered by above)
     {
       lockPPScounter = 0;
     }
@@ -302,24 +302,22 @@ void calculation()
       PPSlocked = 0;
      }
  
- // turn on LED 13 if "locked"    
+  // turn on LED if "locked"    
   digitalWrite(ppsLockedLED,PPSlocked);
-  
-//////
  
-// read ADC1 and 2 - temperature 
-  int dummyreadADC = analogRead(A1); //without this ADC1 is influenced by ADC0
+  // read ADC1 and 2 - temperature 
+  int dummyreadADC = analogRead(A1); // without this ADC1 is influenced by ADC0
   tempADC1 = analogRead(A1);
-  dummyreadADC = analogRead(A2); //without this ADC2 is influenced by ADC1
+  dummyreadADC = analogRead(A2);     // without this ADC2 is influenced by ADC1
   tempADC2 = analogRead(A2);
-  dummyreadADC = analogRead(A0); //without this TIC_Value (ADC0) is influenced by ADC2
+  dummyreadADC = analogRead(A0);     // without this TIC_Value (ADC0) is influenced by ADC2
 
-// set filter constant
+  // set filter constant
   filterConst = timeConst / filterDiv;
   filterConst = constrain (filterConst, 1,1024);
   if (PPSlocked == 0 || opMode == hold) filterConst = 1;
   
-// recalculation of value  
+  // recalculation of value  
   if(timeConst != timeConstOld)
     {
   dacValue = dacValue / timeConstOld * timeConst;  
@@ -331,11 +329,11 @@ void calculation()
   TIC_ValueFiltered = TIC_ValueFiltered / filterConstOld * filterConst;
     }
      
-// Low Pass Filter for TICvalue (Phase Error)
-// Remember that TIC_ValueFiltered is multiplied by filterConst
+  // Low Pass Filter for TICvalue (Phase Error)
+  // Remember that TIC_ValueFiltered is multiplied by filterConst
   
   // Don´t update if outlier. Accepts diff_ns less than same ns as vco range in ppb + 200ns
-  if abs(diff_ns <6500)// First check to avoid overflow in next calculation (also max VCO range is about 6500ns/s)
+  if abs(diff_ns <6500) // First check to avoid overflow in next calculation (also max VCO range is about 6500ns/s)
   {
   if( abs(diff_ns * gain) < (65535 + 200 * gain))
   {
@@ -356,13 +354,13 @@ void calculation()
    }
    else (dacValue2 = dacValue); // No change
 
-// Low Pass Filter for temperature  
+  // Low Pass Filter for temperature  
   tempADC2_Filtered = tempADC2_Filtered + (tempADC2 * 100 - tempADC2_Filtered) / 100;
   
-// Temperature correction  
+  // Temperature correction  
   dacValueWithTempComp = dacValue2 + ((tempRef * 100 - tempADC2_Filtered) * tempCoeff / 10000 * timeConst); 
 
-// Check that dacvalue is within limits
+  // Check that 16-bit DAC value is within limits
   if (dacValue < 0) 
    { dacValue = 0;}
   if (dacValue > (65535 * timeConst))
@@ -378,7 +376,7 @@ void calculation()
   if (holdValue > 0 && opMode == hold) 
    {dacValueOut = holdValue ;}
 
-// Set "16bit DAC" 
+// Set "16-bit" DAC 
   valuePWMhigh = highByte(dacValueOut);
   valuePWMlow = lowByte(dacValueOut);
   analogWrite(PWMhighPin,valuePWMhigh);
@@ -394,14 +392,14 @@ if (time > 100 && restartFlag == true)
   }
   
 //////////////////////////////////////////////////////////////////////////////////////
-//Storage of average readings that is later printed
+// Storage of average readings that are later printed
 
   
   sumTIC = sumTIC + (TIC_Value * 10);
   sumTemp = sumTemp + (tempADC2 * 10);
   sumDAC = sumDAC + dacValueOut;
   i = i + 1;
-  if (i == 300) // 300sec
+  if (i == 300) // 300s = 5 minutes
   {
     if (opMode == run) 
        {StoreTIC_A[j]= sumTIC / i;}
@@ -422,7 +420,7 @@ if (time > 100 && restartFlag == true)
     sumDAC = 0;
     i = 0;
     j = j + 1;
-    if (j % 36 == 0) // store every 36 x 300sec (3 hours)
+    if (j % 36 == 0) // store every 36 x 300s = 3 hours
     {
       sumTIC2 = sumTIC2 / 36;
       if (opMode == run) 
@@ -508,7 +506,9 @@ if (time > 100 && restartFlag == true)
 
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////
+// ---------------------------------------------------------------------------------------------
+//    getCommand routine - gets and runs commands received through serial port
+// --------------------------------------------------------------------------------------------- 
 void getCommand()
 {
   char ch;
@@ -536,25 +536,25 @@ void getCommand()
    
   }; 
   
-  if (Serial.available() > 0) {       //process if something is there
+  if (Serial.available() > 0) {       // process if something is there
     ch = Serial.read();
     
     switch(ch) {
-   	
-      case a:				    // set damping command
+     
+      case a:           // set damping command
       case A:
-        z = Serial.parseInt();  //needs new line or carriage return set in Arduino serial monitor
+        z = Serial.parseInt();  // needs new line or carriage return set in Arduino serial monitor
         if (z >=50 && z <= 1000)
           {
             damping = z / 100.0; 
             Serial.print(F("Damping "));
             Serial.println(damping);
           }
-          else { Serial.println(F("Not a valid damping value - Shall be between 50 and 1000"));}
- 	break;	
+          else { Serial.println(F("Not a valid damping value - Should be between 50 and 1000"));}
+  break;  
             
-         	
-      case b:				    // set temperature offset command
+          
+      case b:           // set temperature offset command
       case B:
         z = Serial.parseInt();
         if (z >=1 && z <= 1023)
@@ -563,11 +563,11 @@ void getCommand()
             Serial.print(F("Temperature offset "));
             Serial.println(tempRef);
           }
-          else { Serial.println(F("Not a valid temperature offset value - Shall be between 1 and 1023"));}
- 	break;	
+          else { Serial.println(F("Not a valid temperature offset value - Should be between 1 and 1023"));}
+  break;  
       
-         	
-      case c:				    // Set temperature coefficient
+          
+      case c:           // Set temperature coefficient
       case C:
         z = Serial.parseInt();
         if (z >=0 && z <= 10000)
@@ -582,13 +582,13 @@ void getCommand()
             tempCoeff = (10000-z);
             Serial.print(F("Temperature Coefficient "));
             Serial.println(tempCoeff);
-      	    }
+            }
           
-          else { Serial.println(F("Not a valid temperature coefficient value - Shall be between 0 and 20000"));}
- 	break;
- 	
+          else { Serial.println(F("Not a valid temperature coefficient value - Should be between 0 and 20000"));}
+  break;
+  
       
-      case d:				// set dacValue command
+      case d:       // set DAC value command
       case D:
         z = Serial.parseInt();
         if (z >=1 && z <= 65535)
@@ -597,57 +597,57 @@ void getCommand()
             Serial.print(F("dacValue "));
             Serial.println(z);
           }
-          else { Serial.println(F("Not a valid dacValue - Shall be between 1 and 65535"));}
- 	break;
- 	
+          else { Serial.println(F("Not a valid DAC value - Should be between 1 and 65535"));}
+  break;
   
-      case e:				// erase command
+  
+      case e:       // erase command
       case E:  
         z = Serial.parseInt();      
         switch (z) {
           
           case 1:
-          Serial.println(F("Erase 3h storage in EEPROM "));	
+          Serial.println(F("Erase 3h storage in EEPROM ")); 
           for (int i = 0; i < 864; i++)
             {EEPROM.write(i, 0);}          
           EEPROM.write(1023, 0);
-          k = 0 ; //reset 3hours counter
-      	  break;
+          k = 0 ; // reset 3 hours counter
+          break;
           
           case 22:          
-          Serial.println(F("Erase all EEPROM to zero"));	
+          Serial.println(F("Erase all EEPROM to zero"));  
           for (int i = 0; i < 1024; i++)
             {EEPROM.write(i, 0);}
-          k = 0 ; //reset 3hours counter
+          k = 0 ; // reset 3 hours counter
           break;
           
           case 33:          
-          Serial.println(F("Erase all EEPROM to -1"));	
+          Serial.println(F("Erase all EEPROM to -1"));  
           for (int i = 0; i < 1024; i++)
             {EEPROM.write(i, 255);}
-          k = 0 ; //reset 3hours counter
+          k = 0 ; // reset 3 hours counter
           break;
                        
           default:
-          Serial.println(F("Not a valid value for erase - Shall be 1 or 22"));
+          Serial.println(F("Not a valid value for erase - Should be either 1 or 22"));
           }          
           
-      break;	
+      break;  
   
-      case f:				// help command
+      case f:       // help command
       case F:      
         z = Serial.parseInt();
         
         switch (z) {
           
           case 1:          
-          Serial.println("");
-          Serial.println(F("Info and help - To get values for gain etc type f2 <enter>, f3 <enter> reads ADC3 and f4 <enter> EEPROM"));	
+          Serial.println();
+          Serial.println(F("Info and help - To get values for gain etc type f2 <enter>, f3 <enter> reads ADC3 and f4 <enter> EEPROM")); 
           printHeader1_ToSerial();
           Serial.print("\t");
           printHeader2_ToSerial();
-          Serial.println("");
-          Serial.println("");
+          Serial.println();
+          Serial.println();
           Serial.println(F("Typing a<value><enter> will set a new damping between between 0.50 and 10.00 set 50 to 1000"));
           Serial.println(F("Typing b<value><enter> will set a new tempRef between 1 and 1023"));
           Serial.println(F("Typing c<value><enter> will set a new tempCoeff set between 0 and 10000. Adding 10000 gives negative tc"));
@@ -667,38 +667,38 @@ void getCommand()
           Serial.println(F("Typing s<value><enter> will save gain etc to EEPROM if value 1 and dacvalue if 2"));
           Serial.println(F("Typing t<value><enter> will set a new time constant between 4 and 32000 seconds"));
           Serial.println(F("Typing w<value><enter> will set a new warmup time between 2 and 1000 seconds"));
-          Serial.println("");
+          Serial.println();
           printHeader3_ToSerial();
           break;
          
           case 2:
           Serial.println("");
           Serial.print(F("Gain    ")); Serial.print("\t"); Serial.print(gain); Serial.print("\t");                   
-           Serial.print(F("Damping ")); Serial.print("\t"); Serial.print(damping); Serial.print("\t");
-           Serial.print(F("TimeConst "));  Serial.print("\t"); Serial.print(timeConst); Serial.print("\t");
-           Serial.print(F("FilterDiv "));  Serial.print("\t"); Serial.print(filterDiv); Serial.print("\t");
-           Serial.print(F("TIC_Offset "));  Serial.print("\t"); Serial.println(TIC_Offset);
+          Serial.print(F("Damping ")); Serial.print("\t"); Serial.print(damping); Serial.print("\t");
+          Serial.print(F("TimeConst "));  Serial.print("\t"); Serial.print(timeConst); Serial.print("\t");
+          Serial.print(F("FilterDiv "));  Serial.print("\t"); Serial.print(filterDiv); Serial.print("\t");
+          Serial.print(F("TIC_Offset "));  Serial.print("\t"); Serial.println(TIC_Offset);
           Serial.print(F("TempRef "));  Serial.print("\t"); Serial.print(tempRef); Serial.print("\t");
-           Serial.print(F("TempCoeff "));  Serial.print("\t"); Serial.print(tempCoeff); Serial.print("\t");
-           Serial.print(F("TICmin  "));  Serial.print("\t"); Serial.print(TICmin,1); Serial.print("\t");
-           Serial.print(F("TICmax  "));  Serial.print("\t"); Serial.print(TICmax,0); Serial.print("\t");
-           Serial.print(F("Square comp "));  Serial.print("\t"); Serial.println(x2,3); 
+          Serial.print(F("TempCoeff "));  Serial.print("\t"); Serial.print(tempCoeff); Serial.print("\t");
+          Serial.print(F("TICmin  "));  Serial.print("\t"); Serial.print(TICmin,1); Serial.print("\t");
+          Serial.print(F("TICmax  "));  Serial.print("\t"); Serial.print(TICmax,0); Serial.print("\t");
+          Serial.print(F("Square comp "));  Serial.print("\t"); Serial.println(x2,3); 
           Serial.print(F("Warm up time "));  Serial.print("\t"); Serial.print(warmUpTime); Serial.print("\t");
-           Serial.print(F("LockPPScounter "));  Serial.print("\t"); Serial.print(lockPPScounter); Serial.print("\t");
-           Serial.print(F("MissedPPS "));  Serial.print("\t"); Serial.print(missedPPS); Serial.print("\t");
-           Serial.print(F("TimeSinceMissedPPS  ")); Serial.println(timeSinceMissedPPS);           
+          Serial.print(F("LockPPScounter "));  Serial.print("\t"); Serial.print(lockPPScounter); Serial.print("\t");
+          Serial.print(F("MissedPPS "));  Serial.print("\t"); Serial.print(missedPPS); Serial.print("\t");
+          Serial.print(F("TimeSinceMissedPPS  ")); Serial.println(timeSinceMissedPPS);           
           Serial.print(F("ID_Number  "));  Serial.print("\t"); Serial.print(ID_Number); Serial.print("\t");
-           Serial.print(F("Restarts  "));  Serial.print("\t"); Serial.print(restarts); Serial.print("\t");
-           Serial.print(F("Total hours"));  Serial.print("\t"); Serial.println(totalTime3h * 3);           
-          Serial.println("");    
+          Serial.print(F("Restarts  "));  Serial.print("\t"); Serial.print(restarts); Serial.print("\t");
+          Serial.print(F("Total hours"));  Serial.print("\t"); Serial.println(totalTime3h * 3);           
+          Serial.println();    
           printHeader3_ToSerial();
           break;
           
           case 3:
-          Serial.println ("");
+          Serial.println();
           Serial.print (F("ADC3 = "));
           Serial.println(analogRead(A3));
-          Serial.println ("");
+          Serial.println();
           break;
           
           case 4:      
@@ -737,18 +737,18 @@ void getCommand()
           Serial.print (F("timeConst = "));
           z=(EEPROM.read(1021)*256 + EEPROM.read(1022)); Serial.println((unsigned int)z); 
           Serial.print (F("k = "));
-          Serial.println (EEPROM.read(1023));         
-          Serial.println ("");                    
+          Serial.println(EEPROM.read(1023));         
+          Serial.println();                    
           break;
           
           default:
-          Serial.println(F("Not a valid value for help - Shall be 1 to 4"));    
+          Serial.println(F("Not a valid value for help - Should be 1 to 4"));    
           }
-      	break;
+        break;
        
       
       
-      case g:				    // gain command
+      case g:           // gain command
       case G:
         z = Serial.parseInt();
         if (z >=10 && z <= 65534)
@@ -757,11 +757,11 @@ void getCommand()
             Serial.print(F("Gain "));
             Serial.println(z);
           }
-          else { Serial.println(F("Not a valid gain value - Shall be between 10 and 65534"));}
- 	break;	
+          else { Serial.println(F("Not a valid gain value - Should be between 10 and 65534"));}
+  break;  
       
-      case h:                              // hold command
-      case H:
+      case h:                   // hold command
+      case H:                   // switches to holdover mode and specifies holdValue
         z = Serial.parseInt();
         if (z >=0 && z <= 65535)
           {
@@ -771,20 +771,20 @@ void getCommand()
           holdValue = z ; 
           Serial.println(holdValue);
           }
-          else { Serial.println(F("Not a valid holdValue - Shall be between 0 and 65535"));}         
+          else { Serial.println(F("Not a valid holdValue - Should be between 0 and 65535"));}         
           
         break;
         
-      case i:				   // help command
+      case i:          // help command
       case I:      
         z = Serial.parseInt();
         if (z == 1)
           { nsDisplayedDecimals = !nsDisplayedDecimals ; }
           else
            { lessInfoDisplayed = !lessInfoDisplayed ; }
-      	break;
+        break;
 
-      case j:				    // temperature_Sensor_Type       
+      case j:           // temperature_Sensor_Type       
       case J:
         z = Serial.parseInt();
         if (z >=0 && z <= 99)
@@ -793,10 +793,10 @@ void getCommand()
             Serial.print(F("temperature_Sensor_Type "));
             Serial.println(z);
           }
-          else { Serial.println(F("Not a valid temperature_Sensor_Type value - Shall be between 0 and 99"));}
- 	break;	
+          else { Serial.println(F("Not a valid temperature_Sensor_Type value - Should be between 0 and 99"));}
+  break;  
             
-      case l:				    // set TIC linearization parameters command
+      case l:           // set TIC linearization parameters command
       case L:
         z = Serial.parseInt();
         if (z >=1 && z <= 500)
@@ -818,9 +818,9 @@ void getCommand()
             Serial.println(x2);
           }
           else { Serial.println(F("Not a valid value"));}
- 	break;	
+  break;  
       
-      case n:				    // ID_number      
+      case n:           // ID_number      
       case N:
         z = Serial.parseInt();
         if (z >=0 && z <= 65534)
@@ -829,10 +829,10 @@ void getCommand()
             Serial.print(F("ID_Number "));
             Serial.println(z);
           }
-          else { Serial.println(F("Not a valid ID_Number value - Shall be between 0 and 65534"));}
- 	break;	
+          else { Serial.println(F("Not a valid ID_Number value - Should be between 0 and 65534"));}
+  break;  
             
-      case o:				    // TIC_Offset command
+      case o:           // TIC_Offset command
       case O:
         z = Serial.parseInt();
         if (z >=200 && z <= 1020)
@@ -841,10 +841,10 @@ void getCommand()
             Serial.print(F("TIC_Offset "));
             Serial.println(z);
           }
-          else { Serial.println(F("Not a valid TIC_offset - Shall be between 200 and 1020"));}
- 	break;	
+          else { Serial.println(F("Not a valid TIC_offset - Should be between 200 and 1020"));}
+  break;  
         
-      case p:				    // set prefilter div command
+      case p:           // set prefilter div command
       case P:
         z = Serial.parseInt();
         if (z >=2 && z <= 4)
@@ -853,17 +853,17 @@ void getCommand()
             Serial.print(F("Prefilter div "));
             Serial.println(z);
           }
-          else { Serial.println(F("Not a valid prefilter value - Shall be between 2 and 4"));}
- 	break;	
+          else { Serial.println(F("Not a valid prefilter value - Should be between 2 and 4"));}
+  break;  
       
-      case r:                                // run command
-      case R:
+      case r:                    // run command
+      case R:                    // switches to run mode
         Serial.println(F("Run"));
         opMode = run;
         newMode = run;
         break;
         
-      case s:				     // save command
+      case s:            // save command
       case S:        
         z = Serial.parseInt();
         switch (z) {
@@ -896,23 +896,23 @@ void getCommand()
           EEPROM.write(1020, lowByte(gain));
           EEPROM.write(1021, highByte(timeConst));
           EEPROM.write(1022, lowByte(timeConst));
-          Serial.println("");
+          Serial.println();
           break;
                     
           case 2: 
           Serial.print(F("Saved DacValue "));
           EEPROM.write(1017, highByte(dacValueOut));
           EEPROM.write(1018, lowByte(dacValueOut));
-          Serial.println(""); 
+          Serial.println(); 
           break;          
           
           default:
           Serial.println(F("Not a valid value for save - Shall be 1 or 2"));
           }
-      	break;	  
+        break;    
         
-      case t:				// time constant command
-      case T:	      	
+      case t:       // time constant command
+      case T:         
         z = Serial.parseInt();
         if (z >=4 && z <= 32000)
           {
@@ -920,11 +920,11 @@ void getCommand()
             Serial.print(F("time constant "));
             Serial.println(z);
           }
-          else { Serial.println(F("Not a valid time constant - Shall be between 4 and 32000"));}
- 	break;	
+          else { Serial.println(F("Not a valid time constant - Should be between 4 and 32000"));}
+  break;  
   
-     	
-      case w:				    // set warm up time command
+      
+      case w:           // set warm up time command
       case W:
         z = Serial.parseInt();
         if (z >=2 && z <= 1000)
@@ -933,8 +933,8 @@ void getCommand()
             Serial.print(F("Warmup time "));
             Serial.println(z);
           }
-          else { Serial.println(F("Not a valid warmup time - Shall be between 2 and 1000"));}
- 	break;	
+          else { Serial.println(F("Not a valid warmup time - Should be between 2 and 1000"));}
+  break;  
       
       
       default:
@@ -943,16 +943,18 @@ void getCommand()
     };
     
     while(Serial.available() > 0) {
-      ch = Serial.read();                //flush rest of line
+      ch = Serial.read();                // flush rest of line
     }
   }
 }
  
-    
-////////////////////////////////////////////////////////////////////////////////////////////////
+// ---------------------------------------------------------------------------------------------
+//    printDataToSerial routine - prints status messages to serial port in table format
+// --------------------------------------------------------------------------------------------- 
+// all fields are tab separated
 void printDataToSerial()
 {
-  Serial.print((time), DEC);  
+  Serial.print((time), DEC);  // uptime in seconds ; timestamp for all the fields that follow
   Serial.print("\t"); 
   if (TIC_Value == 1023)
     {
@@ -978,7 +980,7 @@ void printDataToSerial()
   Serial.print("\t");  
   if (time > warmUpTime && opMode == run)
   { 
-   if (PPSlocked == 0) {Serial.print(F("NoLock"));}
+   if (PPSlocked == 0) {Serial.print(F("No Lock"));}
      else {Serial.print(F("Locked"));} 
    Serial.print("\t");              
   }
@@ -994,7 +996,7 @@ void printDataToSerial()
     }
     
  if (lessInfoDisplayed == false)
- {
+  {
   Serial.print(diff_ns, DEC);
   Serial.print("\t");
   Serial.print(TIC_ValueFiltered * 10 / filterConst, DEC);
@@ -1006,8 +1008,8 @@ void printDataToSerial()
   Serial.print(((49999-timer1CounterValue)), DEC);
   Serial.print("\t");
     
-  //Serial.print(tempADC1, DEC);
-  //Serial.print("\t"); 
+  // Serial.print(tempADC1, DEC);
+  // Serial.print("\t"); 
   if (temperature_Sensor_Type/10 == 0)
     { Serial.print(tempADC1, DEC); }
   else
@@ -1081,7 +1083,7 @@ void printDataToSerial()
     Serial.print(F("Restarted+hold"));    
     break;
     case 2:
-    Serial.print(F("noLock"));    
+    Serial.print(F("no Lock"));    
     break;
     case 3:
     Serial.print(F("Restarted"));    
@@ -1115,27 +1117,28 @@ void printDataToSerial()
   Serial.print("\t");              
   } 
  if (i == 298)
-  {
-  Serial.print(F("Type f1<enter> to get help+info"));
-  Serial.print("\t");              
-  }
+   {
+   Serial.print(F("Type f1<enter> to get help+info"));
+   Serial.print("\t");              
+   }
  if (i == 299)
-  {
-  printHeader2_ToSerial();
-  }
+   {
+   printHeader2_ToSerial();
+   }
 
-} // end of If (lessInfoDisplayed) 
-  Serial.println("");     
+  } // end of if (lessInfoDisplayed) 
+  Serial.println();     
   
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////
+// ---------------------------------------------------------------------------------------------
+//    print fixed messages 1 or 2 or 3 to serial routine 
+// --------------------------------------------------------------------------------------------- 
 void printHeader1_ToSerial()
 {
 Serial.print(F("Arduino GPSDO with 1ns TIC by Lars Walenius"));
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////
 void printHeader2_ToSerial()
 {
   Serial.print(F("Rev. 3.0 170801"));
@@ -1147,7 +1150,6 @@ void printHeader2_ToSerial()
     }    
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////
 void printHeader3_ToSerial()
 {
   Serial.print(F("time"));
@@ -1168,12 +1170,12 @@ void printHeader3_ToSerial()
   Serial.print("\t");                           
   Serial.print(F("timer1"));
   Serial.print("\t");
-  Serial.println(F("temp1"));
-  
-  
+  Serial.println(F("temp1")); 
 }
-//////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// ---------------------------------------------------------------------------------------------
+//    convert ADC reading to temperature in C routine (depends on sensor type)
+// ---------------------------------------------------------------------------------------------
 float temperature_to_C(int RawADC, int sensor) 
 {
   float TempC; 
@@ -1208,18 +1210,12 @@ float temperature_to_C(int RawADC, int sensor)
     if (RawADC == 0){TempC = 0;}
   return TempC; // Return the Temperature in C or raw
 }
-//////////////////////////////////////////////////////////////////////////////////////////////////////////
-void setup() 
+
+// ---------------------------------------------------------------------------------------------
+//    read data from EEPROM to variables
+// ---------------------------------------------------------------------------------------------
+void getdatafromEEPROM()
 {
-  pinMode(ppsLockedLED,OUTPUT);
-  
-  Serial.begin(9600);
-  
-// Print info and header in beginning
-  printHeader1_ToSerial();
-  Serial.print("\t");      // prints a tab
-  
-// Read data from EEPROM to variables
   unsigned int y; 
   y = EEPROM.read(991)*256 + EEPROM.read(992);
   if ((y > 0) && (y < 65535)) // set last stored xx if not 0 or 65535
@@ -1296,22 +1292,54 @@ void setup()
     { 
     gain = y;
     } 
-     
   y = EEPROM.read(1021)*256 + EEPROM.read(1022);
   if ((y >= 4) && (y <= 32000)) // set last stored timeConst if between 4 and 32000
     { 
     timeConst = y;
     }   
   k = EEPROM.read (1023); // last index of stored 3 hour average
-   if ((k > 143)|| (k < 0)) k = 0; //reset if k is invalid (eg with a new processor)
- 
-// Set "16bit DAC"  
+   if ((k > 143)|| (k < 0)) k = 0; // reset if k is invalid (eg with a new processor)
+}
+
+// ---------------------------------------------------------------------------------------------
+//    blink LED twice
+// ---------------------------------------------------------------------------------------------
+void blinkledtwice()
+{
+  digitalWrite(ppsLockedLED,false);
+  delay(50);
+  digitalWrite(ppsLockedLED,true);
+  delay(20);
+  digitalWrite(ppsLockedLED,false);
+  delay(100);
+  digitalWrite(ppsLockedLED,true);
+  delay(20);
+  digitalWrite(ppsLockedLED,false);   
+}
+
+// ---------------------------------------------------------------------------------------------
+//    Setup routine
+// --------------------------------------------------------------------------------------------- 
+void setup() 
+{
+  pinMode(ppsLockedLED,OUTPUT); // configure pin for PPS "locked" status LED
+  
+  Serial.begin(9600);
+  
+  // Print info and header in beginning
+  printHeader1_ToSerial();
+  Serial.print("\t");      // prints a tab
+  
+  // Read data from EEPROM to variables
+  getdatafromEEPROM();
+
+  // Set "16bit DAC"  
   valuePWMhigh = highByte(dacValueOut); 
   valuePWMlow = lowByte(dacValueOut);
   analogWrite(PWMhighPin,valuePWMhigh);
   analogWrite(PWMlowPin,valuePWMlow);
   
-// Set initial values  
+  // initialize various variables  
   dacValue = dacValueOut * timeConst;
   timeConstOld = timeConst;
   filterConstOld = filterConst;
@@ -1320,72 +1348,68 @@ void setup()
   TIC_ValueFilteredForPPS_lock = TIC_Offset * 16;
   tempADC2_Filtered = tempRef * 100;
 
-// Set analog ref to about 1.1 Volt  
+  // Set ADC analog reference to about 1.1 Volt  
   analogReference(INTERNAL);
-  TIC_Value = analogRead(A0);// just a dummy read
+  TIC_Value = analogRead(A0); // just a dummy read
   
 
-// Setup Timer 1 - counts events on pin D5. Used with 5MHz external clock source (needs to be less than 8MHz). Clock on rising edge. 
-  
-  TCCR1A = 0;    // reset Timer 1            
+  // Setup Timer 1 - clocked by pin D5. D5 is a 5MHz external clock source (needs to be less than 8MHz). Clock on rising edge.  
+  TCCR1A = 0;    // reset Timer 1 by resetting the two Timer/Counter Control Registers TCCR1A and TCCR1B           
   TCCR1B = 0;
   
-  TCCR1B |= (1 << WGM12); //configure timer1 for CTC mode
+  TCCR1B |= (1 << WGM12); // configure Timer 1 for CTC mode (Clear Timer on Compare)
+                          // When the counter reaches the value in OCR1A, it is cleared to zero.
 
-  OCR1A = 49999; // timer1 counts 50000 counts instead of 65536 to give same TCNT1 value every second
+  OCR1A = 49999; // Timer 1 counts up to 50000
     
-  TIMSK1 |= (1 << ICIE1); //interrupt on Capture (1PPS)
+  TIMSK1 |= (1 << ICIE1); // interrupt on Capture, rising edge of 1PPS on pin D8
    
   TCCR1B |= ((1 << CS10) | (1 << CS11) | (1 << CS12)| (1 << ICES1) | (1 << ICNC1)); // start Timer 1 and interrupt with noise cancel
   
 
-// Print info and header in beginning
+  // Print info and header in beginning
   printHeader2_ToSerial();
-  Serial.println("");      // prints a carriage return  
+  Serial.println();
   Serial.println(F("Type f1 <enter> to get help+info"));
   printHeader3_ToSerial(); 
 
-//clear  PPS flag and go on to main loop  
+  // clear PPS flag and go on to main loop  
   PPS_ReadFlag = false; 
 }
 
+// ---------------------------------------------------------------------------------------------
+//    Main loop routine
+// --------------------------------------------------------------------------------------------- 
 void loop() 
 {
-  if (PPS_ReadFlag == true) // set by capture of PPS on D8
+  if (PPS_ReadFlag == true) // set by ISR capture of PPS on D8, so the following code is executed only
+                            // once per second and only when the GPS receiver is locked
   {
-    calculation();
-    getCommand();
-    printDataToSerial();
-    delay(100); // delay 100 milliseconds to give the PPS locked LED some time on if turned off in next step
+    calculation();          // this is the housekeeping function
+    getCommand();           // check serial if we have received a command
+    printDataToSerial();    // write timestamped status and data to serial
     if ((dacValueOut < 3000 || dacValueOut > 62535) && opMode == run)
-     { 
-      digitalWrite(ppsLockedLED,false); // turn off (flash)LED 13 if DAC near limits  
-     }
+      { 
+      delay(100);           // delay 100 milliseconds to give the PPS locked LED some time on
+      digitalWrite(ppsLockedLED,false); // turn off (flash) PPS locked LED if DAC near limits  
+      }
     PPS_ReadFlag = false;    
   }
   
-// timer1 overflow counter // if no 10MHz time will not increment as no overflows will be registered
+// timer1 overflow counter    // if no 10MHz time will not increment as no overflows will be registered
   TCNT1old = TCNT1new;  
   TCNT1new = TCNT1; 
-  if (TCNT1new < TCNT1old)   // if just got an overflow on TCNT1 may miss some during calc+print etc 
+  if (TCNT1new < TCNT1old)    // if just got an overflow on TCNT1 may miss some during calc+print etc 
   {
-     overflowCount++; // normally will increment every 10ms (50000x200ns) used for time since start(seconds)
+     overflowCount++;         // normally will increment every 10ms (50000x200ns) used for time since start(seconds)
      if (overflowCount > 31 && (overflowCount - 30)  % 100 == 0) // sense if more than 1sec since last pps pulse
       {
-      Serial.println(F(" No PPS"));         
-      digitalWrite(ppsLockedLED,false); // blink the LED two times if no PPS
-      delay(50);
-      digitalWrite(ppsLockedLED,true);
-      delay(20);
-      digitalWrite(ppsLockedLED,false);
-      delay(100);
-      digitalWrite(ppsLockedLED,true);
-      delay(20);
-      digitalWrite(ppsLockedLED,false); 
+      Serial.println(F(" No PPS"));
+      blinkledtwice();        // blink the LED twice if no PPS 
       if (overflowCount > 2000 ) newMode = run; // resets timer_us etc after 20s without PPS in calculation function
-      if (overflowCount > 20000 )lockPPScounter = 0; // resets locked after about 200secs without PPS
+      if (overflowCount > 20000 )lockPPScounter = 0; // resets locked after 200s without PPS
       getCommand(); 
-      if (time < warmUpTime)// avoid incrementing time before pps comes first time
+      if (time < warmUpTime)  // avoid incrementing time before pps comes first time
         {
          overflowCount = 0 ;
         }
