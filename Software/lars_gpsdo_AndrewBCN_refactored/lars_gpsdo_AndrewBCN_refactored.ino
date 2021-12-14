@@ -1304,7 +1304,7 @@ void getdatafromEEPROM()
 // ---------------------------------------------------------------------------------------------
 //    blink LED twice
 // ---------------------------------------------------------------------------------------------
-void blinkledtwice()
+void flashLEDtwice()
 {
   digitalWrite(ppsLockedLED,false);
   delay(50);
@@ -1323,6 +1323,7 @@ void blinkledtwice()
 void setup() 
 {
   pinMode(ppsLockedLED,OUTPUT); // configure pin for PPS "locked" status LED
+  flashLEDtwice();              // flash LED twice to signal GPSDO is alive
   
   Serial.begin(9600);
   
@@ -1382,6 +1383,9 @@ void setup()
 // --------------------------------------------------------------------------------------------- 
 void loop() 
 {
+  // note the GPSDO does not accept any command before the GPS module generates the 1PPS pulse, which
+  // requires position lock, which in turn requires a proper antenna and around 4 satellites in view.
+  
   if (PPS_ReadFlag == true) // set by ISR capture of PPS on D8, so the following code is executed only
                             // once per second and only when the GPS receiver is locked
   {
@@ -1393,10 +1397,10 @@ void loop()
       delay(100);           // delay 100 milliseconds to give the PPS locked LED some time on
       digitalWrite(ppsLockedLED,false); // turn off (flash) PPS locked LED if DAC near limits  
       }
-    PPS_ReadFlag = false;    
+    PPS_ReadFlag = false;   // reset the flag    
   }
   
-// timer1 overflow counter    // if no 10MHz time will not increment as no overflows will be registered
+  // timer1 overflow counter - if no 10MHz, timer will not increment as no overflows will be registered
   TCNT1old = TCNT1new;  
   TCNT1new = TCNT1; 
   if (TCNT1new < TCNT1old)    // if just got an overflow on TCNT1 may miss some during calc+print etc 
@@ -1405,7 +1409,7 @@ void loop()
      if (overflowCount > 31 && (overflowCount - 30)  % 100 == 0) // sense if more than 1sec since last pps pulse
       {
       Serial.println(F(" No PPS"));
-      blinkledtwice();        // blink the LED twice if no PPS 
+      flashLEDtwice();        // blink the LED twice if no PPS 
       if (overflowCount > 2000 ) newMode = run; // resets timer_us etc after 20s without PPS in calculation function
       if (overflowCount > 20000 )lockPPScounter = 0; // resets locked after 200s without PPS
       getCommand(); 
