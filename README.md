@@ -6,7 +6,7 @@ These are the original files for **Lars' DIY GPSDO EEVblog** project by **Lars W
 
 ## Schematic
 
-![Lars Original DIY-GPSDO schematic](Schematic_GPSDO_controller_170629a.jpg)
+![Lars Original DIY-GPSDO schematic](Lars_Schematic_GPSDO_controller_170629a.jpg)
 
 ## Software
 
