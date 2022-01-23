@@ -1,5 +1,5 @@
 # Lars DIY-GPSDO Software
-The file [Lars_gpsdo_30_170801.ino](Lars_gpsdo_30_170801.ino) is the original, unchanged Arduino sketch published by Lars Walenius in the EEVblog in August 2017. Note that Lars never changed a single line in his original Arduino sketch, so we have neither later nor earlier versions of his gpsdo firmware.
+The file [Lars_gpsdo_30_170801.ino](Lars_gpsdo_30_170801.ino) is the original, unchanged Arduino sketch published by **Lars Walenius** in the EEVblog Forum on August 2017. Note that Lars never changed a single line in his original Arduino sketch, so we have neither later nor earlier versions of his GPSDO firmware.
 
 ## How to contribute?
 
