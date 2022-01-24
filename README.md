@@ -1,3 +1,5 @@
+![License: GPL v3](https://img.shields.io/github/license/AndrewBCN/Lars-DIY-GPSDO)
+
 # Lars DIY-GPSDO (GPS Disciplined Oscillator)
 
 These are the original files for **Lars' DIY GPSDO EEVblog** project by **Lars Walenius** as published in the EEVblog thread.
